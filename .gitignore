@@ -1,0 +1,60 @@
+# Environnement virtuel / packaging Python
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+
+# Caches d'outils
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Builds PyInstaller
+build/
+dist/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Secrets / config locale
+.env
+.env.*
+!.env.example
+
+# Alias de lanes propres à l'organisation (voir lanes.example.json)
+lanes.local.json
+
+# Donnees de travail : BPMN metier confidentiels + sorties generees
+# Seul l'exemple de demonstration est versionne (data/exemple.bpmn et sa
+# sortie) : il est genere pour la doc et ne contient aucune donnee reelle.
+# TOUS les autres BPMN et TOUTES les autres sorties restent ignores.
+data/*
+!data/input/
+!data/jobs/
+!data/exemple.bpmn
+data/input/*
+!data/input/.gitkeep
+data/jobs/*
+!data/jobs/.gitkeep
+
+# Seule la sortie de exemple.bpmn est versionnee, fichier par fichier, afin
+# qu'une future conversion d'un BPMN reel reste ignoree par defaut.
+output-bpmn/
+!output-bpmn/
+output-bpmn/*
+!output-bpmn/images/
+output-bpmn/images/*
+!output-bpmn/images/exemple--process-1*.png
+!output-bpmn/exemple--process-1*.md
+
+# Anciennes sorties de travail : jamais versionnees
+# (motif generique, pour ne pas nommer les dossiers locaux)
+exemple-*/

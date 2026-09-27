@@ -1,0 +1,13 @@
+[project]
+name = "bpmn-to-us"
+version = "0.1.0"
+description = "Convertit des fichiers BPMN 2.0 XML en Markdown : user stories, criteres d'acceptation, regles de gestion, matrice de tracabilite"
+requires-python = ">=3.12"
+dependencies = [
+    "cairosvg>=2.7",
+    "pillow>=11",
+    "pyinstaller>=6.22.3",
+]
+
+[tool.uv]
+package = false
