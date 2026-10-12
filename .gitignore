@@ -58,3 +58,4 @@ output-bpmn/images/*
 # Anciennes sorties de travail : jamais versionnees
 # (motif generique, pour ne pas nommer les dossiers locaux)
 exemple-*/
+commentaires_*

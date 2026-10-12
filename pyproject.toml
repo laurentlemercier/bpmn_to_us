@@ -5,8 +5,13 @@ description = "Convertit des fichiers BPMN 2.0 XML en Markdown : user stories, c
 requires-python = ">=3.12"
 dependencies = [
     "cairosvg>=2.7",
-    "pillow>=11",
+    "markdown-it-py>=3.0",
+    "mdit-py-plugins>=0.4",
+    "pillow>=10",
+    "pygments>=2.17",
     "pyinstaller>=6.22.3",
+    "pyside6>=6.6",
+    "python-docx>=1.1",
 ]
 
 [tool.uv]

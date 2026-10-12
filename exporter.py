@@ -12,17 +12,17 @@ Modes :
     --list
 
 Exemples :
-    python exporter.py exemple.bpmn --list
+    python bpmn_exporter.py FluxLogistiques-production.bpmn --list
 
-    python exporter.py exemple.bpmn --full
+    python bpmn_exporter.py FluxLogistiques-production.bpmn --full
 
-    python exporter.py exemple.bpmn \
-        --process Process_1a2b3c
+    python bpmn_exporter.py FluxLogistiques-production.bpmn \
+        --process Process_00db9nj
 
-    python exporter.py exemple.bpmn \
-        --lane "Preparation"
+    python bpmn_exporter.py FluxLogistiques-production.bpmn \
+        --lane "Chaine"
 
-    python exporter.py exemple.bpmn --all
+    python bpmn_exporter.py FluxLogistiques-production.bpmn --all
 
 Dépendances :
     pip install cairosvg pillow
@@ -90,6 +90,7 @@ Changements par rapport à la V1
 """
 
 import argparse
+import functools
 import html
 import math
 import re
@@ -156,16 +157,6 @@ def safe_filename(value):
     value = str(value).strip()
     value = re.sub(r"[^\w\-\.]+", "_", value, flags=re.UNICODE)
     return value.strip("_") or "export"
-
-
-def clean_text_content(value):
-    """Normalise un texte multi-lignes (ex. contenu d'une bpmn:text) en une
-    chaîne unique, espaces/retours à la ligne réduits — le retour à la
-    ligne est ensuite recalculé par wrap_text() selon la largeur de la
-    forme, comme pour n'importe quel autre libellé."""
-    if not value:
-        return ""
-    return " ".join(str(value).split())
 
 
 def attr(element, name, default=None):
@@ -270,21 +261,6 @@ class BPMNDocument:
         self.processes = {}
         self.lanes = {}
 
-        # Suivi des plans BPMN-DI (bpmndi:BPMNDiagram / BPMNPlane). Un
-        # fichier BPMN peut contenir plusieurs diagrammes : le principal
-        # (collaboration ou processus racine) et, pour chaque sous-processus
-        # replié dont le contenu a été détaillé séparément dans l'outil de
-        # modélisation, un diagramme dédié dont le bpmnElement est l'id de
-        # ce sous-processus. Sans cette distinction, les formes du
-        # diagramme de détail (positionnées dans leur propre repère de
-        # coordonnées) se retrouveraient mélangées à celles du diagramme
-        # principal lors du rendu.
-        self.main_plane_id = None
-        self.detail_plane_ids = []          # ordre d'apparition dans le fichier
-        self.subprocess_diagrams = {}       # id sous-processus -> élément XML
-        self._shape_plane = {}              # id de BPMNShape -> id de plan
-        self._edge_plane = {}               # id de BPMNEdge -> id de plan
-
         self._parse()
 
     # ---------------------------------------------------------------------
@@ -355,39 +331,8 @@ class BPMNDocument:
             if lane_id:
                 self.lanes[lane_id] = lane
 
-        # BPMN-DI : un ou plusieurs diagrammes, chacun avec son propre plan
-        # et son propre repère de coordonnées. Le premier diagramme du
-        # fichier est le diagramme principal (collaboration ou processus
-        # racine) ; tout diagramme supplémentaire est un diagramme de
-        # détail pour le sous-processus replié dont l'id est son
-        # bpmnElement (ouvert séparément dans l'outil de modélisation).
-        for diagram in self.root.findall(f".//{BPMNDI}BPMNDiagram"):
-            plane = diagram.find(f"{BPMNDI}BPMNPlane")
-
-            if plane is None:
-                continue
-
-            plane_id = plane.get("bpmnElement")
-
-            if not plane_id:
-                continue
-
-            if self.main_plane_id is None:
-                self.main_plane_id = plane_id
-            elif plane_id != self.main_plane_id:
-                self.detail_plane_ids.append(plane_id)
-                subprocess_element = self.elements.get(plane_id)
-                if subprocess_element is not None:
-                    self.subprocess_diagrams[plane_id] = subprocess_element
-
-            self._parse_plane(plane, plane_id)
-
-    # ---------------------------------------------------------------------
-
-    def _parse_plane(self, plane, plane_id):
-        """Parse les BPMNShape/BPMNEdge d'un seul plan (voir _parse)."""
-
-        for shape in plane.findall(f".//{BPMNDI}BPMNShape"):
+        # BPMNShape
+        for shape in self.root.findall(f".//{BPMNDI}BPMNShape"):
             element_id = shape.get("id")
             bpmn_element = shape.get("bpmnElement")
 
@@ -396,10 +341,7 @@ class BPMNDocument:
             if not element_id or not bpmn_element or bounds is None:
                 continue
 
-            # Norme BPMN-DI : isExpanded vaut false par défaut quand absent
-            # (un sous-processus dont la forme ne porte pas cet attribut,
-            # avec des dimensions de tâche simple, est replié).
-            is_expanded = shape.get("isExpanded", "false").lower() == "true"
+            is_expanded = shape.get("isExpanded", "true").lower() != "false"
 
             self.shapes[element_id] = Shape(
                 element_id,
@@ -413,9 +355,9 @@ class BPMNDocument:
                 label_bounds=self._read_label_bounds(shape),
                 is_expanded=is_expanded,
             )
-            self._shape_plane[element_id] = plane_id
 
-        for edge in plane.findall(f".//{BPMNDI}BPMNEdge"):
+        # BPMNEdge
+        for edge in self.root.findall(f".//{BPMNDI}BPMNEdge"):
             edge_id = edge.get("id")
             bpmn_element = edge.get("bpmnElement")
 
@@ -437,39 +379,6 @@ class BPMNDocument:
                     pass
 
             self.edges[edge_id] = result
-            self._edge_plane[edge_id] = plane_id
-
-    # ---------------------------------------------------------------------
-
-    def get_subprocess_name(self, subprocess_id):
-        """Nom d'un sous-processus détaillé dans son propre diagramme."""
-
-        element = self.subprocess_diagrams.get(subprocess_id)
-
-        if element is None:
-            return subprocess_id
-
-        return element.get("name") or element.get("id") or subprocess_id
-
-    # ---------------------------------------------------------------------
-
-    def subprocess_elements(self, subprocess_id):
-        """Ids BPMN appartenant à un sous-processus détaillé (lui-même inclus)."""
-
-        element = self.elements.get(subprocess_id)
-
-        if element is None:
-            return set()
-
-        result = {subprocess_id}
-
-        for descendant in element.iter():
-            descendant_id = descendant.get("id")
-
-            if descendant_id:
-                result.add(descendant_id)
-
-        return result
 
     # ---------------------------------------------------------------------
 
@@ -644,15 +553,8 @@ class BPMNDocument:
 
     # ---------------------------------------------------------------------
 
-    def all_shape_bounds(self, element_ids=None, plane_id=None):
-        """Calcule le rectangle englobant des shapes (et de leurs libellés).
-
-        `plane_id`, si fourni, restreint le calcul aux formes de ce plan
-        BPMN-DI (voir _parse_plane) : indispensable quand le fichier
-        contient un diagramme de détail pour un sous-processus replié,
-        dont les coordonnées sont dans un repère différent du diagramme
-        principal.
-        """
+    def all_shape_bounds(self, element_ids=None):
+        """Calcule le rectangle englobant des shapes (et de leurs libellés)."""
 
         selected = []
 
@@ -660,9 +562,6 @@ class BPMNDocument:
             if element_ids is not None:
                 if shape.bpmn_element not in element_ids:
                     continue
-
-            if plane_id is not None and self._shape_plane.get(shape.id) != plane_id:
-                continue
 
             selected.append(shape.bounds)
 
@@ -699,17 +598,15 @@ class SVGRenderer:
         self.document = document
         self.padding = padding
         self.scale = scale
+        self._highlight = None
 
     # ---------------------------------------------------------------------
 
-    def _visible_shapes(self, element_ids, plane_id):
+    def _visible_shapes(self, element_ids):
         doc = self.document
 
         for shape in doc.shapes.values():
             if element_ids is not None and shape.bpmn_element not in element_ids:
-                continue
-
-            if doc._shape_plane.get(shape.id) != plane_id:
                 continue
 
             element = doc.elements.get(shape.bpmn_element)
@@ -721,13 +618,10 @@ class SVGRenderer:
 
     # ---------------------------------------------------------------------
 
-    def _visible_edges(self, element_ids, plane_id):
+    def _visible_edges(self, element_ids):
         doc = self.document
 
         for edge in doc.edges.values():
-            if doc._edge_plane.get(edge.id) != plane_id:
-                continue
-
             element = doc.elements.get(edge.bpmn_element)
 
             if element is None:
@@ -743,34 +637,22 @@ class SVGRenderer:
 
     # ---------------------------------------------------------------------
 
-    def render(self, element_ids=None, highlight_ids=None, plane_id=None):
+    def render(self, element_ids=None, highlight=None):
         """Génère le SVG correspondant à la sélection.
+
+        highlight : ensemble d'ids BPMN à mettre en évidence (halo coloré) ;
+        tout le reste est estompé. None = rendu normal.
 
         Rendu en 3 passes pour garantir un empilement correct :
           1) fonds des conteneurs (pool / lane / sous-processus déplié)
           2) flèches (sequenceFlow, messageFlow, association)
           3) formes "feuilles" (tâches, événements, gateways, data...)
-
-        `highlight_ids`, si fourni, est un ensemble d'ids d'éléments BPMN
-        (bpmnElement) à entourer d'un halo visuel, dessiné juste après les
-        flèches et avant les formes : cela permet de repérer un élément
-        précis (une activité, un scénario) sur un diagramme complet, sans
-        changer le rendu des autres éléments.
-
-        `plane_id` sélectionne le diagramme BPMN-DI à dessiner (voir
-        BPMNDocument._parse_plane) : par défaut, le diagramme principal du
-        fichier (document.main_plane_id). Pour dessiner le diagramme de
-        détail d'un sous-processus replié, passer son id (présent dans
-        document.detail_plane_ids) — typiquement avec
-        element_ids=document.subprocess_elements(plane_id). Mélanger les
-        formes de deux plans différents n'aurait pas de sens : leurs
-        coordonnées ne partagent pas le même repère.
         """
 
         doc = self.document
-        plane_id = plane_id or doc.main_plane_id
+        self._highlight = set(highlight) if highlight else None
 
-        bounds = doc.all_shape_bounds(element_ids, plane_id=plane_id)
+        bounds = doc.all_shape_bounds(element_ids)
 
         width = (bounds.width + 2 * self.padding) * self.scale
         height = (bounds.height + 2 * self.padding) * self.scale
@@ -833,39 +715,40 @@ class SVGRenderer:
         )
 
         # --- Passe 1 : fonds des conteneurs -------------------------------
-        for shape, element, tag in self._visible_shapes(element_ids, plane_id):
+        for shape, element, tag in self._visible_shapes(element_ids):
             if tag in CONTAINER_TAGS:
                 self._draw_shape(svg, shape, element, tag)
             elif tag in EXPANDABLE_TAGS and shape.is_expanded:
                 self._draw_container_box(svg, shape, tag)
 
         # --- Passe 2 : flèches ---------------------------------------------
-        for edge, element in self._visible_edges(element_ids, plane_id):
+        for edge, element in self._visible_edges(element_ids):
+            dimmed = self._edge_is_dimmed(element)
+
+            if dimmed:
+                svg.append('<g opacity="0.25">')
+
             self._draw_edge(svg, edge, element)
 
-        # --- Passe 2bis : halos de mise en évidence -------------------------
-        if highlight_ids:
-            for shape, element, tag in self._visible_shapes(element_ids, plane_id):
-                if shape.bpmn_element in highlight_ids:
-                    self._draw_highlight(svg, shape.bounds)
+            if dimmed:
+                svg.append("</g>")
 
         # --- Passe 3 : formes feuilles --------------------------------------
-        for shape, element, tag in self._visible_shapes(element_ids, plane_id):
+        for shape, element, tag in self._visible_shapes(element_ids):
             if tag in CONTAINER_TAGS:
                 continue
 
-            if tag in EXPANDABLE_TAGS and shape.is_expanded:
-                # Le rectangle a déjà été peint en passe 1 : on ne
-                # rajoute ici que le petit marqueur +/- et le nom.
-                self._draw_expand_marker(svg, shape.bounds)
-                self._draw_activity_marker(svg, shape.bounds, element, tag)
-                if element.get("name"):
-                    self._draw_container_label(
-                        svg, shape.bounds, element.get("name")
-                    )
-                continue
+            state = self._highlight_state(shape.bpmn_element, tag)
 
-            self._draw_shape(svg, shape, element, tag)
+            if state == "on":
+                self._draw_halo(svg, shape.bounds)
+            elif state == "off":
+                svg.append('<g opacity="0.3">')
+
+            self._draw_leaf(svg, shape, element, tag)
+
+            if state == "off":
+                svg.append("</g>")
 
         svg.append("</g>")
         svg.append("</svg>")
@@ -873,28 +756,50 @@ class SVGRenderer:
         return "\n".join(svg)
 
     # ---------------------------------------------------------------------
-    # Mise en évidence (repérage d'un élément sur le diagramme complet)
+    # Mise en évidence
     # ---------------------------------------------------------------------
 
+    def _highlight_state(self, element_id, tag):
+        """None = rendu normal, "on" = mis en évidence, "off" = estompé."""
+
+        if not self._highlight:
+            return None
+
+        if element_id in self._highlight:
+            return "on"
+
+        if tag in EXPANDABLE_TAGS:
+            return None     # un sous-processus déplié reste lisible
+
+        return "off"
+
+    def _edge_is_dimmed(self, element):
+        if not self._highlight:
+            return False
+
+        source, target = self.document.resolve_endpoints(element)
+
+        return source not in self._highlight and target not in self._highlight
+
     @staticmethod
-    def _draw_highlight(svg, b, color="#fb8500"):
-        """Halo visuel autour d'une forme, pour la repérer sur le diagramme.
-
-        Dessiné après les flèches et avant les formes : la forme d'origine
-        (fond blanc) reste peinte par-dessus, seul un liseré coloré dépasse
-        tout autour, sans jamais masquer le texte ni l'icône de la forme.
-        """
-
-        pad = 6
-
+    def _draw_halo(svg, b, pad=5):
         svg.append(
-            f'<rect x="{b.x - pad:.2f}" y="{b.y - pad:.2f}" '
-            f'width="{b.width + 2 * pad:.2f}" '
-            f'height="{b.height + 2 * pad:.2f}" '
-            'rx="10" ry="10" '
-            f'fill="{color}" fill-opacity="0.16" '
-            f'stroke="{color}" stroke-width="3" stroke-dasharray="6,3"/>'
+            f'<rect x="{b.x - pad}" y="{b.y - pad}" '
+            f'width="{b.width + 2 * pad}" height="{b.height + 2 * pad}" '
+            'rx="12" ry="12" fill="#ffe9a8" stroke="#e67e00" stroke-width="2.5"/>'
         )
+
+    def _draw_leaf(self, svg, shape, element, tag):
+        if tag in EXPANDABLE_TAGS and shape.is_expanded:
+            # Le rectangle a déjà été peint en passe 1 : on ne
+            # rajoute ici que le petit marqueur +/- et le nom.
+            self._draw_expand_marker(svg, shape.bounds)
+            self._draw_activity_marker(svg, shape.bounds, element, tag)
+            if element.get("name"):
+                self._draw_container_label(svg, shape.bounds, element.get("name"))
+            return
+
+        self._draw_shape(svg, shape, element, tag)
 
     # ---------------------------------------------------------------------
     # Conteneurs (pool / lane / sous-processus déplié)
@@ -930,10 +835,7 @@ class SVGRenderer:
 
     # ---------------------------------------------------------------------
 
-    def _draw_expand_marker(self, svg, b, is_expanded=True):
-        """Marqueur +/- de sous-processus (norme BPMN 2.0) : un sous-processus
-        déplié porte un "-", un sous-processus replié porte un "+"."""
-
+    def _draw_expand_marker(self, svg, b):
         size = 14
 
         x = b.center_x - size / 2
@@ -950,13 +852,6 @@ class SVGRenderer:
             f'x2="{x + size - 3}" y2="{y + size / 2}" '
             'stroke="#333" stroke-width="1"/>'
         )
-
-        if not is_expanded:
-            svg.append(
-                f'<line x1="{x + size / 2}" y1="{y + 3}" '
-                f'x2="{x + size / 2}" y2="{y + size - 3}" '
-                'stroke="#333" stroke-width="1"/>'
-            )
 
     # ---------------------------------------------------------------------
 
@@ -1043,12 +938,6 @@ class SVGRenderer:
     def _draw_shape(self, svg, shape, element, tag):
         b = shape.bounds
         name = element.get("name", "")
-
-        if tag == "textAnnotation":
-            # Une textAnnotation ne porte pas d'attribut "name" : son texte
-            # est le contenu de son enfant <bpmn:text>.
-            text_child = element.find(f"{BPMN}text")
-            name = clean_text_content(text_child.text) if text_child is not None else ""
 
         if tag == "participant":
             self._draw_participant(svg, b, name)
@@ -1609,12 +1498,7 @@ class SVGRenderer:
         )
 
         if tag in ("subProcess", "callActivity", "adHocSubProcess", "transaction"):
-            # Cette branche (_draw_task, appelée depuis _draw_shape en passe
-            # feuille) n'est atteinte que pour un sous-processus/call activity
-            # REPLIÉ : un sous-processus déplié est intercepté plus tôt dans
-            # render() et dessiné via _draw_container_box + le marqueur "-"
-            # (voir plus haut). Ici, c'est donc toujours un "+".
-            self._draw_expand_marker(svg, b, is_expanded=False)
+            self._draw_expand_marker(svg, b)
 
         marker = TASK_MARKERS.get(tag)
 
@@ -2158,10 +2042,10 @@ def export_selection(
     formats,
     padding,
     scale,
-    plane_id=None,
+    highlight=None,
 ):
     renderer = SVGRenderer(document, padding=padding, scale=scale)
-    svg = renderer.render(element_ids, plane_id=plane_id)
+    svg = renderer.render(element_ids, highlight)
 
     output_base = Path(output_base)
 
@@ -2204,16 +2088,6 @@ def print_list(document):
             print(f"  {lane_id} : {name}")
 
     print()
-    print("Sous-processus (diagramme de détail séparé)")
-    print("--------------------------------------------")
-
-    if not document.subprocess_diagrams:
-        print("  Aucun")
-    else:
-        for subprocess_id in document.detail_plane_ids:
-            print(f"  {subprocess_id} : {document.get_subprocess_name(subprocess_id)}")
-
-    print()
 
 
 def find_process(document, value):
@@ -2236,17 +2110,6 @@ def find_lane(document, value):
             return lane_id
 
     raise ValueError(f"Lane introuvable : {value}")
-
-
-def find_subprocess(document, value):
-    if value in document.subprocess_diagrams:
-        return value
-
-    for subprocess_id in document.detail_plane_ids:
-        if document.get_subprocess_name(subprocess_id) == value:
-            return subprocess_id
-
-    raise ValueError(f"Sous-processus introuvable : {value}")
 
 
 def main():
@@ -2272,11 +2135,6 @@ def main():
         "--lane", metavar="LANE", help="Exporte une lane par ID ou nom",
     )
     mode.add_argument(
-        "--subprocess", metavar="SUBPROCESS",
-        help="Exporte le diagramme de détail d'un sous-processus replié, "
-             "par ID ou nom (voir --list)",
-    )
-    mode.add_argument(
         "--all", action="store_true",
         help="Exporte le diagramme complet, tous les processus et toutes "
              "les lanes",
@@ -2295,8 +2153,19 @@ def main():
     parser.add_argument(
         "--scale", type=float, default=1.0, help="Facteur d'échelle",
     )
+    parser.add_argument(
+        "--highlight", metavar="IDS",
+        help="Ids BPMN (séparés par des virgules) à mettre en évidence ; "
+             "le reste du diagramme est estompé",
+    )
 
     args = parser.parse_args()
+
+    highlight = (
+        {x.strip() for x in args.highlight.split(",") if x.strip()}
+        if args.highlight else None
+    )
+    export = functools.partial(export_selection, highlight=highlight)
 
     try:
         document = BPMNDocument(args.bpmn)
@@ -2312,7 +2181,7 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Préfixe tous les fichiers exportés par le nom du fichier BPMN
-    # source (ex : "exemple_ref.bpmn" -> "exemple_ref_full.png").
+    # source (ex : "testdev_ref.bpmn" -> "testdev_ref_full.png").
     prefix = safe_filename(Path(args.bpmn).stem) + "_"
 
     formats = {"png", "jpg"} if args.format == "both" else {args.format}
@@ -2323,7 +2192,7 @@ def main():
 
     if args.full or args.all:
         print("Export du diagramme complet...")
-        export_selection(
+        export(
             document, None, output_dir / f"{prefix}full", formats,
             args.padding, args.scale,
         )
@@ -2343,7 +2212,7 @@ def main():
 
         elements = document.process_elements(process_id)
 
-        export_selection(
+        export(
             document, elements,
             output_dir / f"{prefix}process_{safe_filename(process_id)}",
             formats, args.padding, args.scale,
@@ -2364,35 +2233,13 @@ def main():
 
         elements = document.lane_elements(lane_id)
 
-        export_selection(
+        export(
             document, elements,
             output_dir / (
                 f"{prefix}lane_"
                 + safe_filename(document.get_lane_name(lane_id))
             ),
             formats, args.padding, args.scale,
-        )
-
-    # ------------------------------------------------------------------
-    # Sous-processus (diagramme de détail)
-    # ------------------------------------------------------------------
-
-    if args.subprocess:
-        try:
-            subprocess_id = find_subprocess(document, args.subprocess)
-        except ValueError as exc:
-            print(exc, file=sys.stderr)
-            return 1
-
-        print(f"Export du sous-processus : {document.get_subprocess_name(subprocess_id)}")
-
-        elements = document.subprocess_elements(subprocess_id)
-
-        export_selection(
-            document, elements,
-            output_dir / f"{prefix}subprocess_{safe_filename(subprocess_id)}",
-            formats, args.padding, args.scale,
-            plane_id=subprocess_id,
         )
 
     # ------------------------------------------------------------------
@@ -2403,7 +2250,7 @@ def main():
         for process_id in document.processes:
             print(f"Export processus : {process_id}")
             elements = document.process_elements(process_id)
-            export_selection(
+            export(
                 document, elements,
                 output_dir / f"{prefix}process_{safe_filename(process_id)}",
                 formats, args.padding, args.scale,
@@ -2413,21 +2260,10 @@ def main():
             lane_name = document.get_lane_name(lane_id)
             print(f"Export lane : {lane_name}")
             elements = document.lane_elements(lane_id)
-            export_selection(
+            export(
                 document, elements,
                 output_dir / f"{prefix}lane_{safe_filename(lane_name)}",
                 formats, args.padding, args.scale,
-            )
-
-        for subprocess_id in document.detail_plane_ids:
-            subprocess_name = document.get_subprocess_name(subprocess_id)
-            print(f"Export sous-processus : {subprocess_name}")
-            elements = document.subprocess_elements(subprocess_id)
-            export_selection(
-                document, elements,
-                output_dir / f"{prefix}subprocess_{safe_filename(subprocess_id)}",
-                formats, args.padding, args.scale,
-                plane_id=subprocess_id,
             )
 
     print()

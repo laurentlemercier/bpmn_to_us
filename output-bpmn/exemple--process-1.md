@@ -20,9 +20,19 @@ tags:
 - **Scénarios** : 5
 - **Scénarios alternatifs (événements limites)** : 0
 
-## Vue d'ensemble
+## Diagramme
 
-![Vue d'ensemble de Process_1](images/exemple--process-1--overview.png)
+![Diagramme BPMN — Process_1](images/exemple--full.png)
+
+### Diagrammes par lane
+
+#### Mainteneur / CI
+
+![Lane — Mainteneur / CI](images/exemple--lane-mainteneur-ci.png)
+
+#### Contributeur
+
+![Lane — Contributeur](images/exemple--lane-contributeur.png)
 
 ## Scénarios métier
 
@@ -34,7 +44,7 @@ tags:
     - `Task_1` Creer l'issue
 - **Relais vers** : Mainteneur / CI
 
-![Repère du scénario SC-01 dans le processus](images/exemple--process-1--scenario-sc-01.png)
+![Scénario SC-01 — tâches mises en évidence](images/exemple--process-1--sc-01.png)
 
 ### SC-02 — Mainteneur / CI (1 tâche(s))
 
@@ -45,7 +55,7 @@ tags:
     - `Task_2` Trier l'issue
 - **Relais vers** : Contributeur
 
-![Repère du scénario SC-02 dans le processus](images/exemple--process-1--scenario-sc-02.png)
+![Scénario SC-02 — tâches mises en évidence](images/exemple--process-1--sc-02.png)
 
 ### SC-03 — Contributeur (3 tâche(s))
 
@@ -57,7 +67,7 @@ tags:
     - `Task_5` Ouvrir la pull request
 - **Relais vers** : Mainteneur / CI
 
-![Repère du scénario SC-03 dans le processus](images/exemple--process-1--scenario-sc-03.png)
+![Scénario SC-03 — tâches mises en évidence](images/exemple--process-1--sc-03.png)
 
 ### SC-04 — Mainteneur / CI (3 tâche(s))
 
@@ -70,7 +80,7 @@ tags:
     - `Task_9` Fusionner la PR
 - **Relais vers** : Contributeur
 
-![Repère du scénario SC-04 dans le processus](images/exemple--process-1--scenario-sc-04.png)
+![Scénario SC-04 — tâches mises en évidence](images/exemple--process-1--sc-04.png)
 
 ### SC-05 — Contributeur (1 tâche(s))
 
@@ -79,7 +89,7 @@ tags:
 - **Tâches** :
     - `Task_8` Corriger les retours
 
-![Repère du scénario SC-05 dans le processus](images/exemple--process-1--scenario-sc-05.png)
+![Scénario SC-05 — tâches mises en évidence](images/exemple--process-1--sc-05.png)
 
 ## Scénarios alternatifs (événements limites)
 
@@ -94,8 +104,6 @@ _Aucun événement limite (boundary event) détecté._
 **je veux** creer l'issue,
 
 **afin de** faire progresser le processus métier.
-
-![Repère de « Creer l'issue » dans le processus](images/exemple--process-1--activity-task-1.png)
 
 #### Critères d'acceptation
 
@@ -114,8 +122,6 @@ _Aucun événement limite (boundary event) détecté._
 **je veux** trier l'issue,
 
 **afin de** atteindre le résultat : Issue fermee (non retenue).
-
-![Repère de « Trier l'issue » dans le processus](images/exemple--process-1--activity-task-2.png)
 
 #### Critères d'acceptation
 
@@ -136,8 +142,6 @@ _Aucun événement limite (boundary event) détecté._
 
 **afin de** faire progresser le processus métier.
 
-![Repère de « Creer une branche » dans le processus](images/exemple--process-1--activity-task-3.png)
-
 #### Critères d'acceptation
 
 - Lorsque « Creer une branche » est terminé, alors le processus poursuit vers « Developper et committer ».
@@ -155,8 +159,6 @@ _Aucun événement limite (boundary event) détecté._
 **je veux** developper et committer,
 
 **afin de** faire progresser le processus métier.
-
-![Repère de « Developper et committer » dans le processus](images/exemple--process-1--activity-task-4.png)
 
 #### Critères d'acceptation
 
@@ -176,8 +178,6 @@ _Aucun événement limite (boundary event) détecté._
 
 **afin de** faire progresser le processus métier.
 
-![Repère de « Ouvrir la pull request » dans le processus](images/exemple--process-1--activity-task-5.png)
-
 #### Critères d'acceptation
 
 - Lorsque « Ouvrir la pull request » est terminé, alors le processus poursuit vers « Revue de code ».
@@ -196,8 +196,6 @@ _Aucun événement limite (boundary event) détecté._
 
 **afin de** faire progresser le processus métier.
 
-![Repère de « Revue de code » dans le processus](images/exemple--process-1--activity-task-6.png)
-
 #### Critères d'acceptation
 
 - Lorsque « Revue de code » est terminé, alors le processus poursuit vers « Executer la CI ».
@@ -215,8 +213,6 @@ _Aucun événement limite (boundary event) détecté._
 **je veux** executer la ci,
 
 **afin de** faire progresser le processus métier.
-
-![Repère de « Executer la CI » dans le processus](images/exemple--process-1--activity-task-7.png)
 
 #### Critères d'acceptation
 
@@ -237,8 +233,6 @@ _Aucun événement limite (boundary event) détecté._
 
 **afin de** atteindre le résultat : Issue fermee par la PR.
 
-![Repère de « Fusionner la PR » dans le processus](images/exemple--process-1--activity-task-9.png)
-
 #### Critères d'acceptation
 
 - Lorsque « Fusionner la PR » est terminé, alors le processus poursuit vers « Issue fermee par la PR ».
@@ -256,8 +250,6 @@ _Aucun événement limite (boundary event) détecté._
 **je veux** corriger les retours,
 
 **afin de** faire progresser le processus métier.
-
-![Repère de « Corriger les retours » dans le processus](images/exemple--process-1--activity-task-8.png)
 
 #### Critères d'acceptation
 
@@ -296,36 +288,27 @@ _Aucun événement limite (boundary event) détecté._
 
 ### Task_1 — Creer l'issue
 - Type : `task` | Rôle : Contributeur
-- [Voir sur le diagramme](images/exemple--process-1--activity-task-1.png)
 
 ### Task_2 — Trier l'issue
 - Type : `task` | Rôle : Mainteneur / CI
-- [Voir sur le diagramme](images/exemple--process-1--activity-task-2.png)
 
 ### Task_3 — Creer une branche
 - Type : `task` | Rôle : Contributeur
-- [Voir sur le diagramme](images/exemple--process-1--activity-task-3.png)
 
 ### Task_4 — Developper et committer
 - Type : `task` | Rôle : Contributeur
-- [Voir sur le diagramme](images/exemple--process-1--activity-task-4.png)
 
 ### Task_5 — Ouvrir la pull request
 - Type : `task` | Rôle : Contributeur
-- [Voir sur le diagramme](images/exemple--process-1--activity-task-5.png)
 
 ### Task_6 — Revue de code
 - Type : `task` | Rôle : Mainteneur / CI
-- [Voir sur le diagramme](images/exemple--process-1--activity-task-6.png)
 
 ### Task_7 — Executer la CI
 - Type : `task` | Rôle : Mainteneur / CI
-- [Voir sur le diagramme](images/exemple--process-1--activity-task-7.png)
 
 ### Task_9 — Fusionner la PR
 - Type : `task` | Rôle : Mainteneur / CI
-- [Voir sur le diagramme](images/exemple--process-1--activity-task-9.png)
 
 ### Task_8 — Corriger les retours
 - Type : `task` | Rôle : Contributeur
-- [Voir sur le diagramme](images/exemple--process-1--activity-task-8.png)
