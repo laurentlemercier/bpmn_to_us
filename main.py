@@ -153,7 +153,26 @@ def launch_gui(initial_input: Path | None = None) -> int:
     )
 
 
+def attach_parent_console() -> None:
+    """Exécutable Windows « sans console » (PyInstaller, console=False) :
+    rattache stdout/stderr à la console qui a lancé le programme, pour que le
+    mode ligne de commande affiche ses messages. Sans effet ailleurs."""
+    if sys.platform != "win32" or not getattr(sys, "frozen", False):
+        return
+    try:
+        import ctypes
+
+        if ctypes.windll.kernel32.AttachConsole(-1):    # ATTACH_PARENT_PROCESS
+            sys.stdout = open("CONOUT$", "w", encoding="utf-8", buffering=1)
+            sys.stderr = open("CONOUT$", "w", encoding="utf-8", buffering=1)
+    except Exception:
+        pass
+
+
 def main() -> None:
+    if len(sys.argv) > 1:       # mode CLI (ou --help) : sortie texte attendue
+        attach_parent_console()
+
     default_output = get_base_dir() / "output-bpmn"
 
     parser = argparse.ArgumentParser(

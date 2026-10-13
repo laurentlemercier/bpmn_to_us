@@ -24,6 +24,7 @@ def main(argv=None) -> int:
     ap.add_argument("--page", choices=("A4", "Letter"), default="A4")
     ap.add_argument("--template", type=Path)
     ap.add_argument("--no-toc", action="store_true")
+    ap.add_argument("--no-heading-numbers", action="store_true", help="pas de numérotation 1, 1.1, 1.1.1")
     ap.add_argument("--title-page", action="store_true")
     ap.add_argument("--fetch-remote", action="store_true", help="télécharge les images http(s)")
     args = ap.parse_args(argv)
@@ -35,7 +36,8 @@ def main(argv=None) -> int:
         doc = loader.load_file(args.file)
         opts = ExportOptions(mode=args.mode, quality=args.quality, page_size=args.page,
                              template=args.template, toc=not args.no_toc,
-                             title_page=args.title_page)
+                             title_page=args.title_page,
+                             heading_numbering=not args.no_heading_numbers)
         out = export_docx(doc, args.export, opts)
         for w in doc.warnings:
             print("⚠", w, file=sys.stderr)

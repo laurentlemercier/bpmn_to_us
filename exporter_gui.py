@@ -532,8 +532,8 @@ class ExporterWindow(QMainWindow):
         root = QTreeWidgetItem(["Processus"])
         root.setFlags(root.flags() & ~Qt.ItemIsSelectable)
 
-        for process_id, process in document.processes.items():
-            name = process.get("name") or process_id
+        for process_id in document.processes:
+            name = document.get_process_name(process_id)
             item = QTreeWidgetItem([name])
             item.setData(0, Qt.UserRole, ("process", process_id))
             root.addChild(item)

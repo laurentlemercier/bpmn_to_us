@@ -25,7 +25,10 @@ from pathlib import Path
 from docx import Document as DocxDocument
 from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK, WD_COLOR_INDEX
+from docx.opc.constants import CONTENT_TYPE as CT
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
+from docx.opc.packuri import PackURI
+from docx.parts.numbering import NumberingPart
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Inches, Pt, RGBColor
@@ -64,6 +67,7 @@ class ExportOptions:
     font_size: float = 11
     code_font: str = "Consolas"
     code_font_size: float = 9.5
+    heading_numbering: bool = True    # 1, 1.1, 1.1.1… (numérotation Word native)
     # --- avancé uniquement ---
     toc: bool = True
     toc_depth: int = 3
@@ -94,6 +98,7 @@ _P_AFTER_SHD = ("w:tabs", "w:suppressAutoHyphens", "w:kinsoku", "w:wordWrap", "w
                 "w:textboxTightWrap", "w:outlineLvl", "w:divId", "w:cnfStyle", "w:rPr",
                 "w:sectPr", "w:pPrChange")
 _P_AFTER_BDR = ("w:shd",) + _P_AFTER_SHD
+_P_AFTER_NUMPR = ("w:suppressLineNumbers", "w:pBdr") + _P_AFTER_BDR
 _R_AFTER_SHD = ("w:fitText", "w:vertAlign", "w:rtl", "w:cs", "w:em", "w:lang",
                 "w:eastAsianLayout", "w:specVanish", "w:oMath")
 _TC_AFTER_BDR = ("w:shd", "w:noWrap", "w:tcMar", "w:textDirection", "w:tcFitText",
@@ -251,6 +256,9 @@ class DocxExporter:
     def export(self, doc: Document, out_path) -> Path:
         self.src = doc
         self.d = DocxDocument(str(self.o.template)) if self.o.template else DocxDocument()
+        zoom = self.d.settings.element.find(qn("w:zoom"))   # le modèle python-docx l'omet
+        if zoom is not None and zoom.get(qn("w:percent")) is None:
+            zoom.set(qn("w:percent"), "100")
         self.container = self.d
         self.list_level = 0
         self.quote_level = 0
@@ -259,6 +267,8 @@ class DocxExporter:
         if not self.o.template:
             self._setup_page()
             self._setup_styles()
+        if self.o.heading_numbering:
+            self._setup_heading_numbering()
         sec = self.d.sections[0]
         self._usable_cm = (sec.page_width - sec.left_margin - sec.right_margin) / 360000
         self._avail_cm = self._usable_cm
@@ -326,6 +336,68 @@ class DocxExporter:
         pf.line_spacing = 1.0
         if self.adv:
             _shade_ppr(code.element.get_or_add_pPr(), "F6F8FA")
+
+    def _setup_heading_numbering(self):
+        """Numérotation multiniveau native (1 / 1.1 / 1.1.1…) liée aux styles
+        « Titre 1 » à « Titre 9 » : Word la met à jour seul (ajout, déplacement
+        de titres) et la table des matières l'affiche."""
+        try:
+            numbering = self.d.part.numbering_part.element
+        except NotImplementedError:          # modèle sans numbering.xml
+            xml = ('<w:numbering xmlns:w="http://schemas.openxmlformats.org/'
+                   'wordprocessingml/2006/main"/>').encode()
+            part = NumberingPart.load(PackURI("/word/numbering.xml"),
+                                      CT.WML_NUMBERING, xml, self.d.part.package)
+            self.d.part.relate_to(part, RT.NUMBERING)
+            numbering = part.element
+
+        abstract_ids = [int(a.get(qn("w:abstractNumId"))) for a in numbering.findall(qn("w:abstractNum"))]
+        num_ids = [int(n.get(qn("w:numId"))) for n in numbering.findall(qn("w:num"))]
+        abstract_id = max(abstract_ids, default=-1) + 1
+        num_id = max(num_ids, default=0) + 1
+
+        def el(tag, **attrs):
+            e = OxmlElement(f"w:{tag}")
+            for k, v in attrs.items():
+                e.set(qn(f"w:{k}"), str(v))
+            return e
+
+        abstract = el("abstractNum", abstractNumId=abstract_id)
+        abstract.append(el("multiLevelType", val="multilevel"))
+        for level in range(9):
+            lvl = el("lvl", ilvl=level)
+            lvl.append(el("start", val=1))
+            lvl.append(el("numFmt", val="decimal"))
+            lvl.append(el("pStyle", val=f"Heading{level + 1}"))
+            lvl.append(el("lvlText", val=".".join(f"%{i + 1}" for i in range(level + 1))))
+            lvl.append(el("lvlJc", val="left"))
+            indent = 432 + 144 * level
+            ppr = el("pPr")
+            ppr.append(el("ind", left=indent, hanging=indent))
+            lvl.append(ppr)
+            abstract.append(lvl)
+
+        first_num = numbering.find(qn("w:num"))     # les abstractNum précèdent les num
+        if first_num is not None:
+            first_num.addprevious(abstract)
+        else:
+            numbering.append(abstract)
+        num = el("num", numId=num_id)
+        num.append(el("abstractNumId", val=abstract_id))
+        numbering.append(num)
+
+        for level in range(1, 10):
+            try:
+                style = self.d.styles[f"Heading {level}"]
+            except KeyError:
+                continue
+            ppr = style.element.get_or_add_pPr()
+            for old in ppr.findall(qn("w:numPr")):
+                ppr.remove(old)
+            num_pr = el("numPr")
+            num_pr.append(el("ilvl", val=level - 1))
+            num_pr.append(el("numId", val=num_id))
+            ppr.insert_element_before(num_pr, *_P_AFTER_NUMPR)
 
     def _header_footer(self):
         sec = self.d.sections[0]

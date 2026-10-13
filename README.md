@@ -253,46 +253,15 @@ Le résultat se trouve dans `dist/main/` (`main.exe` + dossier `_internal/`).
 > construire l'exécutable** sans rien fournir. Seul le BPMN de démonstration est
 > présent : vos BPMN réels restent hors du dépôt.
 
-## Alias de lanes
+## Rôles et couloirs (lanes)
 
-Les libellés de lanes BPMN contiennent souvent des fautes de frappe ou des
-abréviations internes. Chaque alias corrige un libellé : la **clé** est la forme
-fautive, la **valeur** le libellé canonique.
+Le **rôle** d'un scénario ou d'une user story est le **nom du couloir BPMN**, repris
+tel quel (par exemple `Contributeur`, `Mainteneur / CI`). Il n'y a aucune table d'alias
+et aucun fichier de configuration : pour corriger un libellé (faute de frappe,
+abréviation), modifiez le nom du couloir dans le BPMN.
 
-Les alias par défaut (dans `_DEFAULT_LANE_ALIASES`, `bpmnparser.py`) reprennent
-les deux lanes du BPMN de démonstration — `Mainteneur / CI` et `Contributeur` —
-afin que l'exemple soit cohérent de bout en bout :
-
-```json
-{
-  "contrib": "Contributeur",
-  "mainteneur ci": "Mainteneur / CI"
-}
-```
-
-Pour votre organisation, créez un fichier `lanes.local.json` **à côté de
-`bpmnparser.py`**, qui s'ajoute aux alias par défaut :
-
-```json
-{
-  "zone de depart": "Zone de départ",
-  "responsable preparation": "Responsable préparation"
-}
-```
-
-Ce fichier est **ignoré par git** : le dépôt reste réutilisable par d'autres.
-Le format est documenté dans `lanes.example.json`.
-
-> ⚠️ Les clés sont comparées **après normalisation** (minuscules, accents
-> retirés — voir `normalize_lane_name`). Une clé contenant un accent ou une
-> majuscule ne correspondra jamais :
-> `"zone de départ"` est inopérant, `"zone de depart"` fonctionne.
-> C'est aussi pourquoi les clés de `lanes.example.json` sont en minuscules
-> sans accent, alors que les valeurs portent accents et majuscules.
-
-Le fichier est lu une seule fois au démarrage, via `_load_lane_aliases()`. S'il
-est illisible ou mal formé, un avertissement est affiché sur stderr et seuls
-les alias par défaut s'appliquent.
+Un élément qui n'est dans aucun couloir reçoit le rôle `Acteur métier non défini`.
+Les éléments d'un sous-processus héritent du couloir de leur sous-processus.
 
 ## Organisation du projet
 
@@ -303,8 +272,6 @@ les alias par défaut s'appliquent.
 | `exporter.py` | Rendu SVG du diagramme (conforme BPMN 2.0) et export PNG/JPG |
 | `main.spec` | Configuration de build PyInstaller |
 | `pyproject.toml` / `uv.lock` | Dépendances et verrouillage |
-| `lanes.example.json` | Exemple de fichier d'alias de lanes (format documenté) |
-| `lanes.local.json` | Vos alias de lanes — **non versionné** |
 | `data/exemple.bpmn` | BPMN de démonstration, versionné (workflow générique, sans donnée réelle) |
 | `data/` | Dossier de travail : y déposer vos `.bpmn` — **seul `exemple.bpmn` est versionné** |
 | `output-bpmn/` | Sorties Markdown + images — **seule la sortie d'`exemple.bpmn` est versionnée** |

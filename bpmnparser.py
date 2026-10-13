@@ -114,17 +114,6 @@ RESULT_KEYWORDS = (
     "validée",
 )
 
-# Personnalisez ce dictionnaire si les noms des lanes BPMN comportent
-# des fautes de frappe récurrentes ou des abréviations internes.
-LANE_ALIASES = {
-    "zonne de préparation de l'expdition": "Zone de préparation de l'expédition",
-    "zone de préparation de l'expdition": "Zone de préparation de l'expédition",
-    "zone de preparation de l'expedition": "Zone de préparation de l'expédition",
-    "responsable logistique": "Responsable logistique",
-    "quai d'expédition": "Quai d'expédition",
-    "quai d'expedition": "Quai d'expédition",
-}
-
 # Libellés lisibles pour les définitions d'événement BPMN (timer, erreur, ...)
 EVENT_DEFINITION_LABELS = {
     "timer": "un délai (timer)",
@@ -241,6 +230,8 @@ class Scenario:
     business_rules: list[str] = field(default_factory=list)
     # Rôle suivant si le chemin métier continue vers un autre acteur.
     handoff_to: str | None = None
+    # Tâches déjà parcourues vers lesquelles le scénario reboucle (reprise).
+    loops_to: list[BpmnNode] = field(default_factory=list)
 
 
 @dataclass
@@ -273,14 +264,13 @@ def normalize_text(value: str | None) -> str:
 
 
 def normalize_lane_name(name: str | None) -> str:
-    """Applique les alias connus et retourne un nom de rôle présentable."""
-    if not name:
-        return "Acteur métier non défini"
+    """Nom du couloir (lane) tel que saisi dans le BPMN, espaces nettoyés.
 
-    clean_name = clean_text(name)
-    normalized = normalize_text(clean_name)
-
-    return LANE_ALIASES.get(normalized, clean_name)
+    Aucune table d'alias : le rôle affiché est exactement le nom du couloir
+    (ex. « Contributeur », « Mainteneur / CI »). Sans nom, repli sur
+    « Acteur métier non défini ».
+    """
+    return clean_text(name) or "Acteur métier non défini"
 
 
 def slugify(value: str) -> str:
@@ -411,11 +401,24 @@ def parse_bpmn(file_path: Path) -> list[ProcessModel]:
             if node_ref.text:
                 lane_by_node_id[node_ref.text.strip()] = lane_name
 
+    # Un processus n'a souvent pas de nom propre : celui-ci est porté par le
+    # participant (pool) qui le référence via processRef.
+    participant_names: dict[str, str] = {}
+    for participant in root.findall(".//bpmn:participant", NS):
+        process_ref = participant.get("processRef")
+        participant_name = clean_text(participant.get("name"))
+        if process_ref and participant_name:
+            participant_names[process_ref] = participant_name
+
     models: list[ProcessModel] = []
 
     for process_element in root.findall(".//bpmn:process", NS):
         process_id = process_element.get("id", "process")
-        process_name = clean_text(process_element.get("name")) or process_id
+        process_name = (
+            clean_text(process_element.get("name"))
+            or participant_names.get(process_id)
+            or process_id
+        )
 
         model = ProcessModel(
             id=process_id,
@@ -829,6 +832,38 @@ def find_direct_result_after_task(
     return list(uniq.values())
 
 
+def find_next_tasks(
+    model: ProcessModel,
+    task: BpmnNode,
+    max_depth: int = 12,
+) -> list[BpmnNode]:
+    """Prochaines tâches atteintes depuis `task` (gateways/événements traversés)."""
+    results: list[BpmnNode] = []
+    visited: set[str] = set()
+    queue: deque[tuple[str, int]] = deque([(task.id, 0)])
+
+    while queue:
+        node_id, depth = queue.popleft()
+
+        if node_id in visited or depth > max_depth:
+            continue
+
+        visited.add(node_id)
+        node = model.nodes.get(node_id)
+
+        if node is None:
+            continue
+
+        if node.id != task.id and is_task(node):
+            results.append(node)
+            continue
+
+        for flow in outgoing_flows(model, node):
+            queue.append((flow.target_ref, depth + 1))
+
+    return list({n.id: n for n in results}.values())
+
+
 def story_goal(model: ProcessModel, task: BpmnNode) -> str:
     results = find_direct_result_after_task(model, task)
     named = [r.name for r in results if r.name]
@@ -1112,6 +1147,7 @@ def build_scenarios(model: ProcessModel) -> list[Scenario]:
     paths = trace_paths(model)
     seen: dict[tuple[str, tuple[str, ...]], Scenario] = {}
     handoffs: dict[tuple[str, tuple[str, ...]], list[str]] = {}
+    loops: dict[tuple[str, tuple[str, ...]], list[BpmnNode]] = {}
     order: list[tuple[str, tuple[str, ...]]] = []
 
     for path in paths:
@@ -1125,9 +1161,19 @@ def build_scenarios(model: ProcessModel) -> list[Scenario]:
                 if idx + 1 < len(segments) else None
             )
 
+            # Reprise : le dernier segment d'un chemin reboucle vers une
+            # tâche déjà parcourue (boucle de correction/retour arrière).
+            looped = []
+            if idx == len(segments) - 1:
+                on_path = set(path)
+                looped = [t for t in find_next_tasks(model, segment[-1]) if t.id in on_path]
+
             if key in seen:
                 if next_role and next_role not in handoffs[key]:
                     handoffs[key].append(next_role)
+                for t in looped:
+                    if t not in loops[key]:
+                        loops[key].append(t)
                 continue
 
             sc = Scenario(id='', title=role, role=role, tasks=segment)
@@ -1143,6 +1189,7 @@ def build_scenarios(model: ProcessModel) -> list[Scenario]:
 
             seen[key] = sc
             handoffs[key] = [next_role] if next_role else []
+            loops[key] = list(looped)
             order.append(key)
 
     # Absorption des segments contenus dans un segment plus long du même rôle.
@@ -1165,6 +1212,9 @@ def build_scenarios(model: ProcessModel) -> list[Scenario]:
         for nxt in handoffs[key]:
             if nxt not in handoffs[parent]:
                 handoffs[parent].append(nxt)
+        for t in loops[key]:
+            if t not in loops[parent]:
+                loops[parent].append(t)
 
         # Un résultat n'est repris que si le segment absorbé finit au même
         # endroit que le parent ; sinon c'est un résultat intermédiaire.
@@ -1178,6 +1228,7 @@ def build_scenarios(model: ProcessModel) -> list[Scenario]:
         sc = seen[key]
         sc.id = f'SC-{idx:02d}'
         sc.handoff_to = ', '.join(handoffs[key]) or None
+        sc.loops_to = loops[key]
         scenarios.append(sc)
 
     if not scenarios:
@@ -1324,7 +1375,7 @@ def render_process_markdown(
 
     lines = [
         '---',
-        f'title: "{model.name}"',
+        'title: "' + model.name.replace('"', '\\"') + '"',
         'type: exigences-bpmn',
         f'bpmn_process_id: {model.id}',
         f'source_bpmn: {source_file.name}',
@@ -1364,6 +1415,11 @@ def render_process_markdown(
         index = lines.index('## Scénarios métier')
         lines[index:index] = diagram
 
+    first_scenario_of: dict[str, str] = {}
+    for sc in scenarios:
+        for t in sc.tasks:
+            first_scenario_of.setdefault(t.id, sc.id)
+
     if scenarios:
         for sc in scenarios:
             lines.append(f'### {sc.id} — {sc.title} ({len(sc.tasks)} tâche(s))')
@@ -1384,6 +1440,14 @@ def render_process_markdown(
                 lines.append(f'    - `{t.id}` {markdown_escape(node_label(t))}')
             if sc.handoff_to:
                 lines.append(f'- **Relais vers** : {sc.handoff_to}')
+            if sc.loops_to:
+                lines.append(
+                    '- **Reprise (retour vers)** : '
+                    + ', '.join(
+                        f'{quote(node_label(t))} ({first_scenario_of.get(t.id, "-")})'
+                        for t in sc.loops_to
+                    )
+                )
             scenario_image = (images or {}).get('scenarios', {}).get(sc.id)
             if scenario_image:
                 lines.extend(['', f'![Scénario {sc.id} — tâches mises en évidence]({scenario_image})'])

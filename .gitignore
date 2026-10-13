@@ -29,9 +29,6 @@ Thumbs.db
 .env.*
 !.env.example
 
-# Alias de lanes propres à l'organisation (voir lanes.example.json)
-lanes.local.json
-
 # Donnees de travail : BPMN metier confidentiels + sorties generees
 # Seul l'exemple de demonstration est versionne (data/exemple.bpmn et sa
 # sortie) : il est genere pour la doc et ne contient aucune donnee reelle.
@@ -52,8 +49,9 @@ output-bpmn/
 output-bpmn/*
 !output-bpmn/images/
 output-bpmn/images/*
-!output-bpmn/images/exemple--process-1*.png
-!output-bpmn/exemple--process-1*.md
+!output-bpmn/images/exemple--*.png
+!output-bpmn/exemple--*.md
+!output-bpmn/exemple--*.docx
 
 # Anciennes sorties de travail : jamais versionnees
 # (motif generique, pour ne pas nommer les dossiers locaux)

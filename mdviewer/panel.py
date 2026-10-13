@@ -45,6 +45,8 @@ class ExportDialog(QDialog):
         self.margin.setValue(opts.margin_cm)
 
         self.font = QLineEdit(opts.font)
+        self.numbering = QCheckBox("Numéroter les titres (1, 1.1, 1.1.1…)")
+        self.numbering.setChecked(opts.heading_numbering)
         self.toc = QCheckBox("Table des matières")
         self.toc.setChecked(opts.toc)
         self.title_page = QCheckBox("Page de titre")
@@ -68,6 +70,7 @@ class ExportDialog(QDialog):
         form.addRow("Format de page :", self.page)
         form.addRow("Marges :", self.margin)
         form.addRow("Police :", self.font)
+        form.addRow(self.numbering)
         form.addRow(self.toc)
         form.addRow(self.title_page)
         form.addRow(self.numbers)
@@ -97,6 +100,7 @@ class ExportDialog(QDialog):
             mode=self.mode.currentData(), quality=self.quality.currentData(),
             page_size=self.page.currentText(), margin_cm=self.margin.value(),
             font=self.font.text().strip() or "Calibri",
+            heading_numbering=self.numbering.isChecked(),
             toc=self.toc.isChecked(), title_page=self.title_page.isChecked(),
             page_numbers=self.numbers.isChecked(), captions=self.captions.isChecked(),
             template=Path(self.template.text()) if self.template.text().strip() else None,

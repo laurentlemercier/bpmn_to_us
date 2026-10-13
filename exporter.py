@@ -260,6 +260,7 @@ class BPMNDocument:
 
         self.processes = {}
         self.lanes = {}
+        self.participant_names = {}
 
         self._parse()
 
@@ -323,6 +324,14 @@ class BPMNDocument:
 
             if process_id:
                 self.processes[process_id] = process
+
+        # Noms portés par les participants (pools) : un processus sans nom
+        # propre prend le nom du pool qui le référence (processRef).
+        for participant in self.root.findall(f".//{BPMN}participant"):
+            process_ref = participant.get("processRef")
+
+            if process_ref and participant.get("name"):
+                self.participant_names[process_ref] = participant.get("name")
 
         # Lanes
         for lane in self.root.findall(f".//{BPMN}lane"):
@@ -388,7 +397,12 @@ class BPMNDocument:
         if process is None:
             return process_id
 
-        return process.get("name") or process.get("id") or process_id
+        return (
+            process.get("name")
+            or self.participant_names.get(process_id)
+            or process.get("id")
+            or process_id
+        )
 
     # ---------------------------------------------------------------------
 
@@ -2072,9 +2086,8 @@ def print_list(document):
     if not document.processes:
         print("  Aucun processus")
     else:
-        for process_id, process in document.processes.items():
-            name = process.get("name") or process_id
-            print(f"  {process_id} : {name}")
+        for process_id in document.processes:
+            print(f"  {process_id} : {document.get_process_name(process_id)}")
 
     print()
     print("Lanes")
@@ -2094,8 +2107,8 @@ def find_process(document, value):
     if value in document.processes:
         return value
 
-    for process_id, process in document.processes.items():
-        if process.get("name") == value:
+    for process_id in document.processes:
+        if document.get_process_name(process_id) == value:
             return process_id
 
     raise ValueError(f"Processus introuvable : {value}")
